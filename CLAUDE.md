@@ -19,6 +19,7 @@ Whenever you change the app, update **both**:
 ## Notes
 
 - Data model: `state.bodies` (base first; later bodies sit on top), `state.cur` = selected body. `state.layers`, `state.sel` and `state.dial` are non-enumerable accessors for the selected body (set up by `withBodyAccess`), so always create state through `restoreState`/`defaultState`. Geometry, exports and 3D work on `bodyView(state, i)`, which adds the automatic pockets (`pocketsFor`) and leaves out holes/indents that a higher body covers (`coveredHoles`). Old single-dial files (`dial` + `layers`) load as one round body.
+- Bodies can rotate (`rotation`, degrees, about the body centre; patterns rotate with the body). Use `bodyToWorld`/`worldToBody`, and `bodyShapeIn(U, L)` for one body's outline in another's coordinates. Shape `custom` is an imported SVG outline stored in `custom.loop` (unit box), sized by width/height and moved by `shapeX/shapeY`. SVG/DXF export a body in its own unrotated frame.
 - The graver (angle, cut depth) is per body (`graverAngle`, `cutDepth`); `bodyView`/`outFor` merge it into `out`. Material is per body too (`metal`, a key of `METALS`, which also lists the Fusion material/appearance names). `state.out` holds only whole-design export settings (its old angle/depth just seed bodies of older files).
 - The Fusion script's data has `bodies[]` (version 2 design files); top-level single-dial fields are kept for older installed copies of the script.
 

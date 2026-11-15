@@ -6,7 +6,7 @@ The whole app is one static page (`index.html`) with no build step. It is also a
 
 ## Bodies (sub-assembled dials)
 
-A design is a stack of **bodies**: plates with their own outline (round, square, tonneau or cushion), size, position, thickness and layers. **Height** moves a body up or down relative to the base dial's top; a body set down into the one below gets a pocket cut for it automatically. SVG and DXF export the selected body; **Fusion model** builds the whole assembly, one component per body.
+A design is a stack of **bodies**: plates with their own outline (round, square, tonneau, cushion, or a custom outline imported from an SVG), size, position, rotation, thickness, material and layers. **Height** moves a body up or down relative to the base dial's top; a body set down into the one below gets a pocket cut for it automatically. SVG and DXF export the selected body; **Fusion model** builds the whole assembly, one component per body.
 
 ## Saving your work
 
