@@ -8,6 +8,10 @@ The whole app is one static page (`index.html`) with no build step. It is also a
 
 Besides guilloché patterns, a layer can be a **finish**: brushed (satin), circular brushed, sunray (soleil), grained / frosted (sablé), circular graining (perlage) or Côtes de Genève. Finishes are placed, stacked and masked like any other layer and show in 2D and 3D; they are left out of exports unless a layer is set to export its strokes.
 
+## Text, markers and tracks
+
+**Text** is its own layer: straight or on an arc, or following a **badge** (a frame) so it moves with it. *Spread words evenly* makes the gaps between words equal while letters stay together. **Markers & tracks** space ticks, batons, dots and shapes along a circle or arc, a rounded rectangle (square tracks), the body outline or a line, by equal angle (where the hands point) or equal distance, with major marks, railway rails and labels (numbers, Roman numerals or a custom list). Elements can be engraved or printed (ink, never cut).
+
 ## Bodies (sub-assembled dials)
 
 A design is a stack of **bodies**: plates with their own outline (round, square, tonneau, cushion, or a custom outline imported from an SVG), size, position, rotation, thickness, material and layers. **Height** moves a body up or down relative to the base dial's top; a body set down into the one below gets a pocket cut for it automatically. SVG and DXF export the selected body; **Fusion model** builds the whole assembly, one component per body.
