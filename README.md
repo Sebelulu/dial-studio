@@ -12,6 +12,10 @@ Besides guilloché patterns, a layer can be a **finish**: brushed (satin), circu
 
 **Text** is its own layer: straight or on an arc, or following a **badge** (a frame) so it moves with it. *Spread words evenly* makes the gaps between words equal while letters stay together. **Markers & tracks** space ticks, batons, dots and shapes along a circle or arc, a rounded rectangle (square tracks), the body outline or a line, by equal angle (where the hands point) or equal distance, with major marks, railway rails and labels (numbers, Roman numerals or a custom list). Elements can be engraved or printed (ink, never cut).
 
+## Applied indices
+
+Raised hour and minute indices (baton, double baton, wedge, triangle, round, square, diamond, or your own SVG shape for hours, minutes and 12 o'clock), laid out like markers. Each layer has its own material and finish (polished, brushed, frosted, faceted), height, optional lume insert, feet through the dial and a clear zone in the pattern. The Fusion model builds them as solids.
+
 ## Bodies (sub-assembled dials)
 
 A design is a stack of **bodies**: plates with their own outline (round, square, tonneau, cushion, or a custom outline imported from an SVG), size, position, rotation, thickness, material and layers. **Height** moves a body up or down relative to the base dial's top; a body set down into the one below gets a pocket cut for it automatically. SVG and DXF export the selected body; **Fusion model** builds the whole assembly, one component per body.
