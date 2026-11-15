@@ -18,6 +18,9 @@ Whenever you change the app, update **both**:
 
 ## Notes
 
+- Data model: `state.bodies` (base first; later bodies sit on top), `state.cur` = selected body. `state.layers`, `state.sel` and `state.dial` are non-enumerable accessors for the selected body (set up by `withBodyAccess`), so always create state through `restoreState`/`defaultState`. Geometry, exports and 3D work on `bodyView(state, i)`, which adds the automatic pockets (`pocketsFor`). Old single-dial files (`dial` + `layers`) load as one round body.
+- The Fusion script's data has `bodies[]` (version 2 design files); top-level single-dial fields are kept for older installed copies of the script.
+
 - Keep internal identifiers stable so existing files keep working: the design file tag `app: 'guilloche-studio'`, the Fusion export tag `guilloche-studio-fusion`, the `GuillocheDial` Fusion script folder, and the autosave key `guilloche-studio-v1`.
 - When `sw.js` changes meaningfully, bump its `CACHE` name.
 - Test in Chromium (Playwright) by serving the folder, e.g. `python3 -m http.server`, and check for page errors.

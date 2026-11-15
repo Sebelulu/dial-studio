@@ -4,6 +4,10 @@ Design rose-engine and straight-line guilloché patterns in the browser, then ex
 
 The whole app is one static page (`index.html`) with no build step. It is also an installable web app (PWA): open it in Chrome or Edge and choose **Install**, or on iPhone use **Share → Add to Home Screen**. It keeps working offline after the first visit.
 
+## Bodies (sub-assembled dials)
+
+A design is a stack of **bodies**: plates with their own outline (round, square, tonneau or cushion), size, position, thickness and layers. **Height** moves a body up or down relative to the base dial's top; a body set down into the one below gets a pocket cut for it automatically. SVG and DXF export the selected body; **Fusion model** builds the whole assembly, one component per body.
+
 ## Saving your work
 
 - **Save to browser** (Ctrl+S) keeps designs in this browser's IndexedDB storage, uploaded fonts included. They are listed under *Saved in this browser*. Saving again with the same design name updates that save.
