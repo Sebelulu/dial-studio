@@ -19,6 +19,7 @@ Whenever you change the app, update **both**:
 ## Notes
 
 - Data model: `state.bodies` (base first; later bodies sit on top), `state.cur` = selected body. `state.layers`, `state.sel` and `state.dial` are non-enumerable accessors for the selected body (set up by `withBodyAccess`), so always create state through `restoreState`/`defaultState`. Geometry, exports and 3D work on `bodyView(state, i)`, which adds the automatic pockets (`pocketsFor`). Old single-dial files (`dial` + `layers`) load as one round body.
+- The graver (angle, cut depth) is per body (`graverAngle`, `cutDepth`); `bodyView`/`outFor` merge it into `out`. `state.out` holds only whole-design export settings (its old angle/depth just seed bodies of older files).
 - The Fusion script's data has `bodies[]` (version 2 design files); top-level single-dial fields are kept for older installed copies of the script.
 
 - Keep internal identifiers stable so existing files keep working: the design file tag `app: 'guilloche-studio'`, the Fusion export tag `guilloche-studio-fusion`, the `GuillocheDial` Fusion script folder, and the autosave key `guilloche-studio-v1`.
