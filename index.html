@@ -5247,11 +5247,66 @@ function bodyShapeIn(U, L) {
   const toU = (x, y) => { const w = bodyToWorld(L, x, y); return worldToBody(U, w[0], w[1]); };
   const fromU = (u, v) => { const w = bodyToWorld(U, u, v); return worldToBody(L, w[0], w[1]); };
   const c = fromU(0, 0);
-  return { bound: ush.bound, cx: c[0], cy: c[1],
+  return { bound: ush.bound, cx: c[0], cy: c[1], fromU,
     inside: (x, y) => { const q = toU(x, y); return ush.inside(q[0], q[1]); },
     loop: N => { const lp = ush.loop(N), o = []; for (let k = 0; k < lp.length; k += 2) { const q = fromU(lp[k], lp[k + 1]); o.push(q[0], q[1]); } return o; } };
 }
+/* Slices: a body can be cut down to a sector of its shape (from / to, clock angles from its centre; equal
+   angles keep the whole shape), optionally with the tip cut away at an inner radius (a ring segment).
+   A whole shape with an inner radius becomes a ring plate: the centre opening is a hole (see bodyView). */
+function sliceSpan(b) { return ((((+b.arcTo || 0) - (+b.arcFrom || 0)) % 360) + 360) % 360; }
+function isSliced(b) { return sliceSpan(b) > 1e-6; }
+function isPlainRound(b) { return (b.shape || 'round') === 'round' && !isSliced(b); }
+const SLICE_CACHE = new Map();
+function slicedShape(b, base, ox, oy) {
+  const key = JSON.stringify([b.shape, b.diameter, b.width, b.height, b.corner, b.taper, b.roundness, b.custom && b.custom.id,
+    b.shapeX, b.shapeY, b.arcFrom, b.arcTo, b.arcInner, ox, oy]);
+  const hit = SLICE_CACHE.get(key);
+  if (hit) return hit;
+  const ring = pts => { const r = []; for (let k = 0; k < pts.length; k += 2) r.push([pts[k], pts[k + 1]]); r.push([pts[0], pts[1]]); return [r]; };
+  // the cutter: out along the slice's far arc, back along the inner arc (or through the centre): one shape,
+  // so its corners never land exactly on another outline (which the boolean operations cannot resolve)
+  const span = sliceSpan(b), R = base.bound * 2 + 1, n = Math.max(8, Math.ceil(span / 2)), ri = Math.max(0, +b.arcInner || 0), cutter = [];
+  for (let i = 0; i <= n; i++) { const v = clockVec(+b.arcFrom + span * i / n); cutter.push([ox + R * v[0], oy + R * v[1]]); }
+  if (ri > 0) {
+    const m = Math.min(720, Math.max(8, Math.ceil(span / 2)));
+    for (let i = m; i >= 0; i--) { const v = clockVec(+b.arcFrom + span * i / m); cutter.push([ox + ri * v[0], oy + ri * v[1]]); }
+  } else cutter.push([ox, oy]);
+  cutter.push(cutter[0]);
+  let pts = null;
+  try {
+    const mp = polygonClipping.intersection(ring(base.loop(720)), [cutter]);
+    let best = 0;
+    const area = r => { let a = 0; for (let i = 0; i < r.length - 1; i++) a += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]; return Math.abs(a / 2); };
+    for (const pg of mp) { const a = area(pg[0]); if (a > best) { best = a; pts = []; for (let i = 0; i < pg[0].length - 1; i++) pts.push(pg[0][i][0], pg[0][i][1]); } }
+  } catch (e) { pts = null; }
+  if (!pts || pts.length < 6) return base;
+  let bound = 0, hw = 0, hh = 0, x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, per = 0;
+  for (let k = 0; k < pts.length; k += 2) {
+    const x = pts[k], y = pts[k + 1];
+    bound = Math.max(bound, Math.hypot(x - ox, y - oy)); hw = Math.max(hw, Math.abs(x - ox)); hh = Math.max(hh, Math.abs(y - oy));
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    const j = (k + 2) % pts.length; per += Math.hypot(pts[j] - x, pts[j + 1] - y);
+  }
+  // the outline keeps its corners (the tip and the ends of the arc); long edges are split for drawing and walls
+  const loop = N => {
+    const step = per / Math.max(64, N || 360), o = [];
+    for (let k = 0; k < pts.length; k += 2) {
+      const j = (k + 2) % pts.length, m = Math.max(1, Math.ceil(Math.hypot(pts[j] - pts[k], pts[j + 1] - pts[k + 1]) / step));
+      for (let q = 0; q < m; q++) o.push(pts[k] + (pts[j] - pts[k]) * q / m, pts[k + 1] + (pts[j + 1] - pts[k + 1]) * q / m);
+    }
+    return o;
+  };
+  const sh = { bound, halfW: hw, halfH: hh, box: { x0, x1, y0, y1 }, inside: polygonIndex(pts), loop };
+  if (SLICE_CACHE.size > 300) SLICE_CACHE.clear();
+  SLICE_CACHE.set(key, sh);
+  return sh;
+}
 function bodyShape(b, ox, oy) {
+  const base = bodyShapeWhole(b, ox, oy);
+  return isSliced(b) ? slicedShape(b, base, ox || 0, oy || 0) : base;
+}
+function bodyShapeWhole(b, ox, oy) {
   ox = ox || 0; oy = oy || 0;
   const shape = b.shape || 'round';
   if (shape === 'custom' && b.custom && b.custom.loop && b.custom.loop.length >= 6) return customShape(b, ox, oy);
@@ -5287,7 +5342,8 @@ function bodyShape(b, ox, oy) {
 }
 function bodyLabel(b) {
   const f = v => +(+v).toFixed(2);
-  return (b.shape || 'round') === 'round' ? `Ø ${f(b.diameter)} mm` : `${f(b.width)} × ${f(b.height)} mm`;
+  const size = (b.shape || 'round') === 'round' ? `Ø ${f(b.diameter)} mm` : `${f(b.width)} × ${f(b.height)} mm`;
+  return size + (isSliced(b) ? ` · slice ${f(+b.arcFrom || 0)}–${f(+b.arcTo || 0)}°` : '') + (b.arcInner > 0 ? ` · inner Ø ${f(2 * b.arcInner)}` : '');
 }
 
 /* Holes: round or rectangular, cut through every layer regardless of order.
@@ -5631,7 +5687,7 @@ function toSVG(state, simp) {
   });
   if (state.dial.outline) {
     out.push('<g id="outline" fill="none" stroke="#000" stroke-width="0.05">');
-    if ((state.dial.shape || 'round') === 'round') out.push(`<circle cx="0" cy="0" r="${f4(bs.halfW)}"/>`);
+    if (isPlainRound(state.dial)) out.push(`<circle cx="0" cy="0" r="${f4(bs.halfW)}"/>`);
     else { const lp = bs.loop(720), q = []; for (let k = 0; k < lp.length; k += 2) q.push(f4(lp[k]) + ',' + f4(-lp[k + 1])); out.push(`<polygon points="${q.join(' ')}"/>`); }
     if (state.dial.hole > 0) out.push(`<circle cx="0" cy="0" r="${f4(state.dial.hole / 2)}"/>`);
     out.push('</g>');
@@ -5666,7 +5722,7 @@ function toDXF(state, simp) {
     }
   });
   if (state.dial.outline) {
-    if ((state.dial.shape || 'round') === 'round') { g(0, 'CIRCLE'); g(8, 'OUTLINE'); g(10, '0.0'); g(20, '0.0'); g(30, '0.0'); g(40, f4(state.dial.diameter / 2)); }
+    if (isPlainRound(state.dial)) { g(0, 'CIRCLE'); g(8, 'OUTLINE'); g(10, '0.0'); g(20, '0.0'); g(30, '0.0'); g(40, f4(state.dial.diameter / 2)); }
     else {
       const lp = bodyShape(state.dial).loop(720);
       g(0, 'POLYLINE'); g(8, 'OUTLINE'); g(66, 1); g(10, '0.0'); g(20, '0.0'); g(30, '0.0'); g(70, 1);
@@ -5785,7 +5841,7 @@ function toDXFFusion(state, geom, tol, perSketch) {
       arcs: ents.filter(e => e.t !== 'L').length, lines: ents.filter(e => e.t === 'L').length });
   });
   if (state.dial.outline) {
-    const ents = (state.dial.shape || 'round') === 'round' ? [{ t: 'C', c: [0, 0], r: state.dial.diameter / 2 }]
+    const ents = isPlainRound(state.dial) ? [{ t: 'C', c: [0, 0], r: state.dial.diameter / 2 }]
       : fitPolyline(bodyShape(state.dial).loop(720), true, tol);
     if (state.dial.hole > 0) ents.push({ t: 'C', c: [0, 0], r: state.dial.hole / 2 });
     chunks.push({ name: 'OUTLINE', ents });
@@ -5851,7 +5907,7 @@ function fusionPackage(state, tol, perSketch) {
   const walls = g.walls.map(w => ({ x: r5(w.x), y: r5(w.y), ox: r5(w.ox), oy: r5(w.oy), floor: w.floor,
     cut: { own: w.cut.own, depth: w.cut.depth, angle: w.cut.angle } }));
   const D = state.dial.diameter;
-  const outline = (state.dial.shape || 'round') === 'round' ? [['C', 0, 0, r5(D / 2)]]
+  const outline = isPlainRound(state.dial) ? [['C', 0, 0, r5(D / 2)]]
     : fitPolyline(bodyShape(state.dial).loop(720), true, tol).map(enc);
   return {
     outline, thickness: state.dial.thickness,
@@ -5986,6 +6042,22 @@ const PRESETS = {
         newLayer('straight', { name: 'Flinque', angle: 0, spacing: 0.16, wavelength: 1.2, ampStart: 0.08, ampEnd: 0.08, rIn: 0, rOut: 8 })
       ] }
     ] }) },
+  slices: { label: 'Sector dial: three sunk slices in gold, blued steel and rose gold, 40 mm', build: () => {
+    const slice = (name, a0, a1, metal, layers) => ({ name, shape: 'round', diameter: 32, arcFrom: a0, arcTo: a1, arcInner: 2.2,
+      thickness: 0.3, z: -0.08, metal, layers });
+    return {
+      name: 'Sector dial',
+      bodies: [
+        { name: 'Dial', shape: 'round', diameter: 40, thickness: 0.5, metal: 'silver', hole: 1.4, layers: [
+          newLayer('marks', { name: 'Minute track', path: 'circle', radius: 19.3, count: 60, shape: 'tick', size: 0.9, width: 0.08,
+            majorEvery: 5, majorShape: 'baton', majorSize: 1.6, majorWidth: 0.35, rails: 'outer', style: 'printed' }),
+          newLayer('rose', { name: 'Border barleycorn', rIn: 16, rOut: 18, lines: 14, wave: 'triangle', waves: 72, ampStart: 0.25, ampEnd: 0.25, altEvery: 1, altShift: 180, rubber: 0.2 }),
+          newLayer('finish', { name: 'Centre, circular', style: 'circular', rIn: 0, rOut: 16, spacing: 0.08, streak: 0 })] },
+        slice('Slice I', 0, 120, 'gold', [newLayer('rays', { name: 'Sunburst', count: 120, rIn: 2.2, rOut: 16, ampStart: 0, ampEnd: 0 })]),
+        slice('Slice II', 120, 240, 'blued', [newLayer('rose', { name: 'Barleycorn', rIn: 2.2, rOut: 16, lines: 40, wave: 'triangle', waves: 30, ampStart: 0.5, ampEnd: 0.5, altEvery: 1, altShift: 180, rubber: 0.4 })]),
+        slice('Slice III', 240, 360, 'rose', [newLayer('finish', { name: 'Perlage', style: 'perlage', rIn: 2.2, rOut: 16, spot: 1.2, spotStep: 0.75, spacing: 0.14 })])
+      ] };
+  } },
   applied: { label: 'Applied indices: faceted gold batons on blued sunray, 38 mm', build: () => ({
     name: 'Applied indices',
     bodies: [
@@ -6164,6 +6236,7 @@ const PRESET_LOOK = {
   finishes:    { out: { depth: 0.03, angle: 120 }, view: { metal: 'silver', thick: 0.5 } },
   railway:     { out: { depth: 0.03, angle: 120 }, view: { metal: 'white' } },
   applied:     { out: { depth: 0.03, angle: 120 }, view: { metal: 'blued' } },
+  slices:      { out: { depth: 0.03, angle: 120 }, view: { metal: 'silver' } },
   retro:       { out: { depth: 0.03, angle: 120 }, view: { metal: 'silver' } },
   clock:       { out: { depth: 0.05, angle: 120 }, view: { metal: 'silver', thick: 1 } },
   classic:     { out: { depth: 0.03, angle: 120 }, view: { metal: 'silver', thick: 0.5 } },
@@ -6249,7 +6322,7 @@ const metalHex = k => '#' + (METALS[k] || METALS.silver).color.toString(16).padS
    state.cur is the body being edited. state.layers / state.sel / state.dial are shortcuts to it,
    so the layer list and forms work on whichever body is selected. */
 const BODY_DEFAULTS = { shape: 'round', diameter: 40, width: 32, height: 40, corner: 2, taper: 0.18, roundness: 4,
-  x: 0, y: 0, z: 0, thickness: 0.5, outline: true, visible: true, hole: 0, holeChamfer: 0, graverAngle: 0, cutDepth: 0, metal: '',
+  x: 0, y: 0, z: 0, thickness: 0.5, outline: true, visible: true, hole: 0, holeChamfer: 0, graverAngle: 0, cutDepth: 0, metal: '', arcFrom: 0, arcTo: 0, arcInner: 0,
   rotation: 0, custom: null, keepAspect: true, shapeX: 0, shapeY: 0 };
 let BODY_SEQ = 1;
 function newBody(over) {
@@ -6358,7 +6431,24 @@ function pocketsFor(st, bi) {
     const uBottom = U.z - U.thickness;
     if (uBottom >= top - 1e-6 || U.z <= bottom + 1e-6) return;     // sits on top, or entirely below
     const ush = bodyShapeIn(U, L), ox = ush.cx, oy = ush.cy;
-    const loop = ush.loop(360);
+    let loop = ush.loop(360);
+    const ring = U.arcInner > 0 && !isSliced(U);
+    if (ring) {
+      // a ring plate needs a ring-shaped pocket: one outline, round the rim and back round the opening the
+      // other way, joined by a hairline slit (any shape; the opening is a circle)
+      const area = lp => { let A = 0; for (let i = 0, n = lp.length / 2; i < n; i++) { const j = (i + 1) % n; A += lp[2 * i] * lp[2 * j + 1] - lp[2 * j] * lp[2 * i + 1]; } return A; };
+      const top = ush.fromU(0, ush.bound * 4), n = loop.length / 2;
+      let i0 = 0, best = Infinity;
+      for (let i = 0; i < n; i++) { const d = Math.hypot(loop[2 * i] - top[0], loop[2 * i + 1] - top[1]); if (d < best) { best = d; i0 = i; } }
+      const outer = []; for (let i = 0; i <= n; i++) { const k = (i0 + i) % n; outer.push(loop[2 * k], loop[2 * k + 1]); }
+      const ccw = area(loop) > 0, ri = U.arcInner, M = 240, inner = [];
+      for (let i = 0; i <= M; i++) {
+        const t = Math.PI / 2 + (ccw ? -1 : 1) * (2 * Math.PI * i / M) + (ccw ? 1 : -1) * 0.0005 * (i === 0 ? -1 : i === M ? 1 : 0);
+        const q = ush.fromU(ri * Math.cos(t), ri * Math.sin(t)); inner.push(q[0], q[1]);
+      }
+      loop = outer.concat(inner);
+    }
+    const pip = ring ? polygonIndex(loop) : null;
     let any = ush.inside(0, 0), all = true;
     for (let k = 0; k < loop.length; k += 2) { if (lsh.inside(loop[k], loop[k + 1])) any = true; else all = false; }
     if (!any) return;
@@ -6366,8 +6456,9 @@ function pocketsFor(st, bi) {
     out.push({ id: 'P' + U.id, type: 'hole', pocket: true, contained: all, name: `Pocket for ${U.name}`, visible: true, mask: false,
       cx: ox, cy: oy, through, depth: Math.min(depth, L.thickness), clearance: 0, chamfer: 0, chamferAngle: 45, floorClearance: 0, outline: true,
       src: { shape: U.shape, diameter: U.diameter, width: U.width, height: U.height, corner: U.corner, taper: U.taper, roundness: U.roundness,
-        rot: U.rotation || 0, lrot: L.rotation || 0, custom: U.custom ? U.custom.id : null, sx: U.shapeX || 0, sy: U.shapeY || 0 },
-      _shape: { bound: ush.bound, inside: (x, y) => ush.inside(x, y), outline: d => (Math.abs(d) < 1e-9 ? [loop] : []) } });
+        rot: U.rotation || 0, lrot: L.rotation || 0, custom: U.custom ? U.custom.id : null, sx: U.shapeX || 0, sy: U.shapeY || 0,
+        arc: [U.arcFrom || 0, U.arcTo || 0, U.arcInner || 0] },
+      _shape: { bound: ush.bound, inside: pip || ((x, y) => ush.inside(x, y)), outline: d => (Math.abs(d) < 1e-9 ? [loop] : []) } });
   });
   return out;
 }
@@ -6398,8 +6489,10 @@ function coveredHoles(st, bi) {
 function bodyView(st, bi) {
   const b = st.bodies[bi], pockets = pocketsFor(st, bi), covered = coveredHoles(st, bi);
   const layers = covered.size ? b.layers.filter(l => !covered.has(l.id)) : b.layers;
-  // feet of applied indices go through the dial
+  // feet of applied indices go through the dial; a whole ring plate has its centre opening
   const feet = [];
+  if (b.arcInner > 0 && !isSliced(b)) feet.push({ id: 'I' + b.id, type: 'hole', opening: true, name: 'Centre opening', visible: true, mask: false,
+    shape: 'circle', cx: 0, cy: 0, diameter: 2 * b.arcInner, through: true, depth: 0, clearance: 0, chamfer: 0, chamferAngle: 45, floorClearance: 0, outline: true });
   for (const L of b.layers) if (L.type === 'applied' && L.visible && L.feet > 0) feet.push(...appliedFeet(L, b));
   return { name: st.bodies.length > 1 ? `${st.name} - ${b.name}` : st.name, dial: b, layers: pockets.concat(feet, layers),
     out: outFor(st, b), fonts: st.fonts, sel: b.sel + pockets.length, body: b, bi };
@@ -6768,6 +6861,8 @@ const BODY_FIELDS = [
   when(num('shapeY', 'Outline offset Y', -200, 200, 0.05, 'mm'), b => b.shape === 'custom'),
   num('x', 'Position X', -200, 200, 0.05, 'mm'), num('y', 'Position Y', -200, 200, 0.05, 'mm'),
   num('rotation', 'Rotation', -180, 180, 0.5, '°'),
+  num('arcFrom', 'Slice from', 0, 360, 0.5, '°'), num('arcTo', 'Slice to', 0, 360, 0.5, '°'),
+  num('arcInner', 'Inner radius', 0, 200, 0.05, 'mm'),
   num('z', 'Height', -10, 10, 0.01, 'mm'),
   num('thickness', 'Thickness', 0.05, 20, 0.01, 'mm'),
   chk('outline', 'Include outline in export')];
@@ -6830,7 +6925,7 @@ function renderBodyForm() {
     ? `<div class="field upl"><span class="note" style="margin:0">Outline: ${esc((b.custom && b.custom.name) || 'none')}</span><button class="btn small" type="button" id="b-svg">Replace with another SVG…</button></div>` : '';
   $('#body-form').innerHTML = `<div class="field text"><label for="b-name">Body name</label><input type="text" id="b-name" value="${esc(b.name)}"></div>` +
     shown.map(f => fieldHTML(f, b[f.key], 'b-') + (f.key === 'shape' ? customRow : '')).join('') +
-    `<p class="note">${state.cur === 0 && state.bodies.length > 1 ? 'This is the base. ' : ''}Height is the top face, measured from the base body's top: + raised, − sunk in.${pocketNote()}</p>`;
+    `<p class="note">${state.cur === 0 && state.bodies.length > 1 ? 'This is the base. ' : ''}Height is the top face, measured from the base body's top: + raised, − sunk in. Slice from / to cut the body down to a sector of its shape (clock angles from its centre, like a cake slice; the same angle keeps the whole shape). Inner radius cuts the tip away, or with the whole shape leaves a ring with a centre opening.${pocketNote()}</p>`;
   $('#b-shape').dataset.prev = b.shape;
   $('#b-name').addEventListener('input', e => {
     b.name = e.target.value;
@@ -7227,7 +7322,7 @@ function buildAll(draft) {
     const b = v.body;
     seen.add(b.id);
     if (b.visible === false) return null;
-    const key = JSON.stringify([b, v.layers.filter(l => l.pocket || l.feet), v.layers.length, v.out]);   // v.out includes this body's graver
+    const key = JSON.stringify([b, v.layers.filter(l => l.pocket || l.feet || l.opening), v.layers.length, v.out]);   // v.out includes this body's graver
     const c = geomCache.get(b.id);
     if (c && c.key === key && (draft || !c.draft)) return c.g;
     const g = buildGeometry(v, draft ? QUALITY.draft : QUALITY.full);
@@ -7269,7 +7364,7 @@ function update(draft) {
 
 const loopPath = (lp, into) => { const p = into || new Path2D(); p.moveTo(lp[0], lp[1]); for (let k = 2; k < lp.length; k += 2) p.lineTo(lp[k], lp[k + 1]); p.closePath(); return p; };
 function bodyOutlinePath(b) {
-  if ((b.shape || 'round') === 'round') { const p = new Path2D(); p.arc(0, 0, b.diameter / 2, 0, Math.PI * 2); return p; }
+  if (isPlainRound(b)) { const p = new Path2D(); p.arc(0, 0, b.diameter / 2, 0, Math.PI * 2); return p; }
   return loopPath(bodyShape(b).loop(720));
 }
 /* Applied indices in 2D: metal pieces lit across (faceted: a ridge down the middle), with a soft shadow. */
@@ -7326,7 +7421,7 @@ function bodyClip(v, outline, through) {
   if (loops.length && window.polygonClipping) {
     try {
       const poly = lp => { const r = []; for (let k = 0; k < lp.length; k += 2) r.push([lp[k], lp[k + 1]]); r.push([lp[0], lp[1]]); return [r]; };
-      const bodyLoop = (v.body.shape || 'round') === 'round' ? bodyShape(v.body).loop(720) : bodyShape(v.body).loop(720);
+      const bodyLoop = bodyShape(v.body).loop(720);
       for (const pg of polygonClipping.difference(poly(bodyLoop), ...loops.map(poly)))
         for (const ring of pg) { clip.moveTo(ring[0][0], ring[0][1]); for (let i = 1; i < ring.length; i++) clip.lineTo(ring[i][0], ring[i][1]); clip.closePath(); }
       done = true;
@@ -8074,7 +8169,7 @@ function body3D(v, geom, S) {
     holes.push({ L, inner: resampleLoop(inL, n), outer: resampleLoop(outL, n), depth: cd, floor, top, nested: !!host && top < T });
   }
   // ----- faces, from boolean operations, so openings may overlap each other or run off the edge -----
-  const rimLoop = (b.shape || 'round') === 'round' ? circleLoop(bs.halfW, 256) : bs.loop(400);
+  const rimLoop = isPlainRound(b) ? circleLoop(bs.halfW, 256) : bs.loop(400);
   const PC = window.polygonClipping;
   const poly = lp => { const r = []; for (let k = 0; k < lp.length; k += 2) r.push([lp[k], lp[k + 1]]); r.push([lp[0], lp[1]]); return [r]; };
   const union = list => (list.length ? PC.union(...list) : []);
@@ -8164,7 +8259,9 @@ function body3D(v, geom, S) {
   walls.push(wallGeom(wallsOf(rimLoop, (x, y) => [0, levelAt(x, y, null)])));
   for (const h of holes) {
     const wallTop = h.top - h.depth;
-    const q = wallsOf(h.inner, (x, y) => (inBody(x, y) ? [h.bottom, Math.min(wallTop, levelAt(x, y, h))] : null));
+    // (a wall with this opening on both sides is the hairline slit of a ring-shaped pocket: nothing to show)
+    const q = wallsOf(h.inner, (x, y) => (inBody(x, y) ? [h.bottom, Math.min(wallTop, levelAt(x, y, h))] : null))
+      .filter(w => { const mx = (w.ax + w.bx) / 2, my = (w.ay + w.by) / 2, e = 0.03; return !(h.inIn(mx + w.na[0] * e, my + w.na[1] * e) && h.inIn(mx - w.na[0] * e, my - w.na[1] * e)); });
     (h.floor && geom.walls && geom.walls.some(w => w.indent === h.L) ? engravedWalls : walls).push(wallGeom(q));
     if (h.depth > 0) {
       // chamfer: a strip from the top of the wall out to the top edge, where nothing else has cut it away
