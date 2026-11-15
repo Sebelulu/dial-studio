@@ -4,6 +4,10 @@ Design rose-engine and straight-line guilloché patterns in the browser, then ex
 
 The whole app is one static page (`index.html`) with no build step. It is also an installable web app (PWA): open it in Chrome or Edge and choose **Install**, or on iPhone use **Share → Add to Home Screen**. It keeps working offline after the first visit.
 
+## Finishes
+
+Besides guilloché patterns, a layer can be a **finish**: brushed (satin), circular brushed, sunray (soleil), grained / frosted (sablé), circular graining (perlage) or Côtes de Genève. Finishes are placed, stacked and masked like any other layer and show in 2D and 3D; they are left out of exports unless a layer is set to export its strokes.
+
 ## Bodies (sub-assembled dials)
 
 A design is a stack of **bodies**: plates with their own outline (round, square, tonneau, cushion, or a custom outline imported from an SVG), size, position, rotation, thickness, material and layers. **Height** moves a body up or down relative to the base dial's top; a body set down into the one below gets a pocket cut for it automatically. SVG and DXF export the selected body; **Fusion model** builds the whole assembly, one component per body.
