@@ -5650,10 +5650,34 @@ function pocketsFor(st, bi) {
   });
   return out;
 }
-/* One body as the geometry and exporters see it: its outline, its pockets and layers, the design's cut. */
+/* Holes and indents of a body that a body higher in the stack covers, even partly, are hidden: they would only
+   show as odd faces under or through the body on top. Returns a map from layer id to the covering body's name. */
+function coveredHoles(st, bi) {
+  const L = st.bodies[bi], out = new Map();
+  const holes = L.layers.filter(h => h.visible && h.type === 'hole');
+  if (!holes.length) return out;
+  for (let ui = bi + 1; ui < st.bodies.length; ui++) {
+    const U = st.bodies[ui];
+    if (U.visible === false) continue;
+    const ush = bodyShape(U, U.x - L.x, U.y - L.y), uloop = ush.loop(180);
+    for (const H of holes) {
+      if (out.has(H.id)) continue;
+      const hs = holeShape(H), c = Math.max(0, H.chamfer || 0);
+      const hloop = (c > 0 ? hs.outline(-c)[0] : null) || hs.outline(0)[0] || [];
+      let hit = ush.inside(H.cx, H.cy);
+      for (let k = 0; !hit && k < hloop.length; k += 2) hit = ush.inside(hloop[k], hloop[k + 1]);
+      for (let k = 0; !hit && k < uloop.length; k += 2) hit = hs.inside(uloop[k], uloop[k + 1], c);
+      if (hit) out.set(H.id, U.name);
+    }
+  }
+  return out;
+}
+/* One body as the geometry and exporters see it: its outline, its pockets and layers (less any covered holes),
+   and its own cut. */
 function bodyView(st, bi) {
-  const b = st.bodies[bi], pockets = pocketsFor(st, bi);
-  return { name: st.bodies.length > 1 ? `${st.name} - ${b.name}` : st.name, dial: b, layers: pockets.concat(b.layers),
+  const b = st.bodies[bi], pockets = pocketsFor(st, bi), covered = coveredHoles(st, bi);
+  const layers = covered.size ? b.layers.filter(l => !covered.has(l.id)) : b.layers;
+  return { name: st.bodies.length > 1 ? `${st.name} - ${b.name}` : st.name, dial: b, layers: pockets.concat(layers),
     out: outFor(st, b), fonts: st.fonts, sel: b.sel + pockets.length, body: b, bi };
 }
 function loadSaved() {
@@ -6053,12 +6077,14 @@ document.querySelectorAll('[data-addbody]').forEach(btn => btn.addEventListener(
   toast(`Added “${b.name}”, set flush into the body below. Use Height to raise or sink it.`);
 }));
 
+let coveredNow = new Map();
 function renderLayers() {
+  coveredNow = coveredHoles(state, state.cur);
   const ul = $('#layer-list');
   ul.innerHTML = state.layers.map((L, i) => `
     <li class="layer${i === state.sel ? ' is-sel' : ''}${L.visible ? '' : ' is-hidden'}" data-i="${i}">
       <input type="checkbox" class="vis" id="vis-${i}" ${L.visible ? 'checked' : ''} aria-label="Show ${esc(L.name)}" title="Show or hide">
-      <button class="pick" type="button" aria-pressed="${i === state.sel}"><span class="sw" style="--sw: var(--c${(i % 6) + 1})"></span><span class="lname">${esc(L.name)}</span><span class="ltype">${L.type === 'hole' && L.through === false ? `Indent · ${L.depth} mm deep` : TYPE_LABEL[L.type]}${L.type !== 'hole' || L.through !== false ? (crossingIds.has(L.id) ? ' · over indent edge' : indentHost(state, L) ? ' · in indent' : '') : ''}${L.mask ? ' · mask' : ''}${L.cutOverride && L.type !== 'hole' ? ` · ${L.cutAngle}°, ${L.cutDepth} mm` : ''}</span></button>
+      <button class="pick" type="button" aria-pressed="${i === state.sel}"><span class="sw" style="--sw: var(--c${(i % 6) + 1})"></span><span class="lname">${esc(L.name)}</span><span class="ltype">${L.type === 'hole' && L.through === false ? `Indent · ${L.depth} mm deep` : TYPE_LABEL[L.type]}${L.type !== 'hole' || L.through !== false ? (coveredNow.has(L.id) ? ` · hidden under ${esc(coveredNow.get(L.id))}` : crossingIds.has(L.id) ? ' · over indent edge' : indentHost(state, L) ? ' · in indent' : '') : ''}${L.mask ? ' · mask' : ''}${L.cutOverride && L.type !== 'hole' ? ` · ${L.cutAngle}°, ${L.cutDepth} mm` : ''}</span></button>
       <span class="lacts">
         <button type="button" class="ib" data-act="up" title="Move up" aria-label="Move ${esc(L.name)} up" ${i === 0 ? 'disabled' : ''}>↑</button>
         <button type="button" class="ib" data-act="down" title="Move down" aria-label="Move ${esc(L.name)} down" ${i === state.layers.length - 1 ? 'disabled' : ''}>↓</button>
@@ -6227,7 +6253,7 @@ function buildAll(draft) {
     const b = v.body;
     seen.add(b.id);
     if (b.visible === false) return null;
-    const key = JSON.stringify([b, v.layers.filter(l => l.pocket), v.out]);   // v.out includes this body's graver
+    const key = JSON.stringify([b, v.layers.filter(l => l.pocket), v.layers.length, v.out]);   // v.out includes this body's graver
     const c = geomCache.get(b.id);
     if (c && c.key === key && (draft || !c.draft)) return c.g;
     const g = buildGeometry(v, draft ? QUALITY.draft : QUALITY.full);
@@ -6256,7 +6282,9 @@ function update(draft) {
     buildAll(draft);
     genMs = performance.now() - t;
     const cross = new Set(geom.layers.filter(g => g.crosses).map(g => g.layer.id));
-    if ([...cross].join() !== [...crossingIds].join()) { crossingIds = cross; if (!document.querySelector('#layer-list .rename')) renderLayers(); }
+    const cov = coveredHoles(state, state.cur);
+    const covChanged = [...cov].join() !== [...coveredNow].join();
+    if ([...cross].join() !== [...crossingIds].join() || covChanged) { crossingIds = cross; if (!document.querySelector('#layer-list .rename')) renderLayers(); }
     draw();
     if (draft) fullTimer = setTimeout(() => update(false), 260);
     else if (state.view.mode === '3d') schedule3D();
