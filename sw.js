@@ -1,6 +1,6 @@
 /* Network-first service worker: always tries for the latest version,
    falls back to the cached copy when offline. Bump CACHE to force a reset. */
-const CACHE = 'guilloche-v1';
+const CACHE = 'dial-studio-v2';
 const CORE = ['/', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

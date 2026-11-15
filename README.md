@@ -1,8 +1,14 @@
-# Guilloché Studio
+# Dial Studio
 
 Design rose-engine and straight-line guilloché patterns in the browser, then export them for CAD and CNC (SVG, DXF, and a Fusion script that builds a 3D dial).
 
 The whole app is one static page (`index.html`) with no build step. It is also an installable web app (PWA): open it in Chrome or Edge and choose **Install**, or on iPhone use **Share → Add to Home Screen**. It keeps working offline after the first visit.
+
+## Saving your work
+
+- **Save to browser** (Ctrl+S) keeps designs in this browser's IndexedDB storage, uploaded fonts included. They are listed under *Saved in this browser*. Saving again with the same design name updates that save.
+- **Download design** saves a `.json` file you can open on any device with **Open design…**.
+- **Undo / Redo** (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) step through your edits.
 
 ## Run locally
 
